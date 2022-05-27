@@ -37,7 +37,8 @@ HEADERS += \
     src/waylandrecord/libcam/libcam_audio/gviewaudio.h \
     src/waylandrecord/load_libs.h \
     src/waylandrecord/audio/audiowatcher.h \
-    src/waylandrecord/audio/vnwaveform.h
+    src/waylandrecord/audio/vnwaveform.h \
+    src/gst/gstrecordx.h
 
 SOURCES += \
     src/main.cpp \
@@ -62,7 +63,8 @@ SOURCES += \
     src/waylandrecord/libcam/libcam_audio/audio.c \
     src/waylandrecord/load_libs.c \
     src/waylandrecord/audio/audiowatcher.cpp \
-    src/waylandrecord/audio/vnwaveform.cpp
+    src/waylandrecord/audio/vnwaveform.cpp \
+    src/gst/gstrecordx.cpp
 
 
     src/waylandrecord/load_libs.c

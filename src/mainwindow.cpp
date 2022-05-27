@@ -80,7 +80,6 @@ void MainWindow::onStartRecord()
     } else {
         m_x11Record = new X11Record();
         m_x11Record->setRecordWinArg(winArg);
-
         m_x11Record->startRecord();
     }
 
