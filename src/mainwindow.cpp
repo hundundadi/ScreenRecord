@@ -5,6 +5,12 @@ MainWindow::MainWindow()
     initMainWindow();
 }
 
+MainWindow::~MainWindow()
+{
+
+    exitApp();
+}
+
 
 void MainWindow::initMainWindow()
 {
@@ -21,6 +27,7 @@ void MainWindow::initMainWindow()
     m_startBtn->show();
     m_startBtn->setAttribute(Qt::WA_TranslucentBackground, false);
     connect(m_startBtn, SIGNAL(clicked()), this, SLOT(onStartRecord()));
+
     m_stopBtn = new DPushButton(this);
     m_stopBtn->setText("stop");
     m_stopBtn->move(80, 5);
@@ -38,27 +45,19 @@ void MainWindow::initMainWindow()
     m_x11Record = nullptr;
     //qDebug() << Utils::getCpuModelName();
 }
-void MainWindow::initDynamicLibPath()
-{
-    LoadLibNames tmp;
-    QByteArray portaudio = libPath("libportaudio.so").toLatin1();
-    tmp.chPortaudio = portaudio.data();
-    setLibNames(tmp);
-}
-QString MainWindow::libPath(const QString &strlib)
-{
-    QDir  dir;
-    QString path  = QLibraryInfo::location(QLibraryInfo::LibrariesPath);
-    dir.setPath(path);
-    QStringList list = dir.entryList(QStringList() << (strlib + "*"), QDir::NoDotAndDotDot | QDir::Files); //filter name with strlib
 
-    if (list.contains(strlib))
-        return strlib;
-
-    list.sort();
-    Q_ASSERT(list.size() > 0);
-    return list.last();
+void MainWindow::exitApp()
+{
+    if(m_waylandRecord){
+        delete m_waylandRecord;
+        m_waylandRecord = nullptr;
+    }
+    if(m_x11Record){
+        delete m_x11Record;
+        m_x11Record = nullptr;
+    }
 }
+
 void MainWindow::onStartRecord()
 {
     qDebug() << QDateTime::currentDateTime().toString(Qt::DateFormat::LocalDate) << "开始录屏！";
@@ -71,11 +70,10 @@ void MainWindow::onStartRecord()
     winArg << QString::number(this->y());
     winArg << QString::number(this->x() + this->width());
     winArg << QString::number(this->y() + this->height());
+    winArg << "/tmp/ScreenRecord.webm";
     if (Utils::isWaylandMode) {
-        initDynamicLibPath();
         m_waylandRecord = new WaylandRecord();
         m_waylandRecord->setRecordWinArg(winArg);
-//        m_waylandRecord->initWaylandRecord();
         m_waylandRecord->startRecord();
     } else {
         m_x11Record = new X11Record();

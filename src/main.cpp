@@ -35,11 +35,11 @@ int main(int argc, char *argv[])
     Utils::isWaylandMode = isWaylandProtocol();
     qDebug() <<  QDateTime::currentDateTime().toString(Qt::DateFormat::LocalDate) <<"当前的系统环境是否是wayland： " << Utils::isWaylandMode;
 
-    MainWindow w;
-    w.setMinimumSize(500, 500);
-    w.show();
+    MainWindow *w = new MainWindow ();
+    w->setMinimumSize(500, 500);
+    w->show();
 
-    Dtk::Widget::moveToCenter(&w);
+    Dtk::Widget::moveToCenter(w);
 
     return a.exec();
 }

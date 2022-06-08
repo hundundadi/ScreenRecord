@@ -2,15 +2,13 @@
 #ifndef RECORDADMIN_H
 #define RECORDADMIN_H
 #include "writeframethread.h"
-#include "gstreamerprocess.h"
-#include "gstvideowriter.h"
-#include "openaudioinput.h"
+#include "../gstvideowriter.h"
 #include <sys/time.h>
 #include <map>
 #include <qimage.h>
 #include "waylandintegration_p.h"
 #include "writeframethread.h"
-#include "audio/audiowatcher.h"
+#include "../audio/audiowatcher.h"
 
 
 #define AUDIO_INPUT_DEVICE    "hw:0,0"
@@ -37,7 +35,6 @@ public:
      */
     void init(int width, int height);
     void initGStreamer();
-    void initGStreamer1();
 
 
     /**
@@ -48,9 +45,6 @@ public:
 
     void setBoardVendor(int boardVendorType);
 
-public slots:
-    void onRecordAudio(uchar *data, uint size);
-    void onRecordSysAudio(uchar *data, uint size);
 protected:
     void  setRecordAudioType(int audioType);
     void  setMicAudioRecord(bool bRecord);
@@ -59,12 +53,9 @@ protected:
     static void *stream(void *param);
 
 public:
-    OpenAudioInput                           *m_pInputStream;
     //CAVOutputStream                          *m_pOutputStream;
     WriteFrameThread                         *m_writeFrameThread;
     QMutex m_cacheMutex;
-    AppSrcOption *m_pAppSrcOption;
-    GStreamProcess *m_gstreamProcess;
     GstVideoWriter *m_gstVideoWriter;
 
     void initAudioWatcher();

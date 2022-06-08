@@ -2,7 +2,7 @@
 #define XDG_DESKTOP_PORTAL_KDE_WAYLAND_INTEGRATION_P_H
 
 #include "waylandintegration.h"
-#include "../global.h"
+#include "../../global.h"
 
 #include <QDateTime>
 #include <QObject>

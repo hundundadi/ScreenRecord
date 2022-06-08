@@ -3,8 +3,8 @@
 #include "waylandintegration_p.h"
 #include "recordadmin.h"
 
-#include <qdebug.h>
-#include <qimage.h>
+#include <QDebug>
+#include <QImage>
 WriteFrameThread::WriteFrameThread(WaylandIntegration::WaylandIntegrationPrivate *context, QObject *parent) :
     QThread(parent),
     m_bWriteFrame(false)

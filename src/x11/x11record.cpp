@@ -74,7 +74,7 @@ void X11Record::initX11Record()
 
     m_recordArg << getRecordMuxer();
     m_recordArg.removeAll("");
-    m_recordArg << "filesink location=/tmp/test/x11_test.webm";
+    m_recordArg << QString("filesink location=%1").arg(m_winArg[5]);
     QString recordArg = m_recordArg.join(" ! ");
     recordArg = recordArg.replace("mix. !", "mix.");
     recordArg = recordArg.replace("mux. !", "mux.");

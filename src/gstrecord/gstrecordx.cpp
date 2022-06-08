@@ -20,7 +20,8 @@
  */
 
 #include "gstrecordx.h"
-#include <QImage>
+#include "utils.h"
+
 extern "C" {
 #include <gst/app/gstappsrc.h>
 }

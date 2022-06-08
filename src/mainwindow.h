@@ -7,10 +7,6 @@
 #include "waylandrecord/waylandrecord.h"
 #include "x11/x11record.h"
 
-extern "C" {
-#include "waylandrecord/load_libs.h"
-}
-
 #include <DPushButton>
 #include <QObject>
 
@@ -20,11 +16,10 @@ class MainWindow : public DWidget
     Q_OBJECT
 public:
     MainWindow();
-
-    void initDynamicLibPath();
-    QString libPath(const QString &strlib);
+    ~MainWindow();
 private:
     void initMainWindow();
+    void exitApp();
 
 public slots:
     void onStartRecord();

@@ -1,6 +1,15 @@
 #ifndef GLOBAL_H
 #define GLOBAL_H
 #include <QObject>
+#include <QLineEdit>
+namespace global
+{
+    extern QString name;
+    extern QString nameOutput;
+    extern QString version;
+    extern int showclickCounter;
+    extern QLineEdit *lineEdit_EOS;
+}
 class Global: public QObject
 {
 public:
