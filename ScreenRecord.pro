@@ -15,19 +15,14 @@ LIBS += -lepoxy -lpulse-simple -ldl
 
 HEADERS += \
     src/mainwindow.h \
-    src/audio/audiowatcher.h \
+    src/common/audioutils.h \
     src/common/global.h \
     src/common/tool.h \
     src/common/utils.h \
     src/gstrecord/gstrecordx.h \
-    src/wayland/kwayland/recordadmin.h \
     src/wayland/kwayland/waylandintegration_p.h \
     src/wayland/kwayland/waylandintegration.h \
-    src/wayland/kwayland/waylandrecord.h \
-    src/wayland/kwayland/writeframethread.h \
-    src/wayland/pipewire/portal_wl.h \
-    src/wayland/waylandrecord.h \
-    src/x11/x11record.h
+    src/wayland/pipewire/portal_wl.h
 
 
 
@@ -35,17 +30,12 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/mainwindow.cpp \
-    src/audio/audiowatcher.cpp \
+    src/common/audioutils.cpp \
     src/common/tool.cpp \
     src/common/utils.cpp \
     src/gstrecord/gstrecordx.cpp \
-    src/wayland/kwayland/recordadmin.cpp \
     src/wayland/kwayland/waylandintegration.cpp \
-    src/wayland/kwayland/waylandrecord.cpp \
-    src/wayland/kwayland/writeframethread.cpp \
-    src/wayland/pipewire/portal_wl.cpp \
-    src/wayland/waylandrecord.cpp \
-    src/x11/x11record.cpp
+    src/wayland/pipewire/portal_wl.cpp
 
 
 

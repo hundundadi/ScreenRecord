@@ -19,7 +19,7 @@
  */
 
 #include "portal_wl.h"
-#include "../../global.h"
+#include "../../common/global.h"
 
 #include <QDBusArgument>
 #include <QDBusConnection>
@@ -33,7 +33,6 @@
 #include <QDBusObjectPath>
 #include <QVariantMap>
 #include <QLatin1String>
-#include <QDebug>
 
 Q_DECLARE_METATYPE(Portal_wl::Stream);
 Q_DECLARE_METATYPE(Portal_wl::Streams);
@@ -69,48 +68,45 @@ Portal_wl::~Portal_wl()
 }
 
 
-void Portal_wl::requestScreenSharing( int value, int mouseOnOff )
+void Portal_wl::requestScreenSharing(int value, int mouseOnOff)
 {
     Selection_Screen_Window_Area = value;
     record_mouse_onOff = mouseOnOff;
 
-    QDBusMessage message = QDBusMessage::createMethodCall( QLatin1String( "org.freedesktop.portal.Desktop" ),
-                                                           QLatin1String( "/org/freedesktop/portal/desktop" ),
-                                                           QLatin1String( "org.freedesktop.portal.ScreenCast" ),
-                                                           QLatin1String( "CreateSession" ) );
+    QDBusMessage message = QDBusMessage::createMethodCall(QLatin1String("org.freedesktop.portal.Desktop"),
+                                                          QLatin1String("/org/freedesktop/portal/desktop"),
+                                                          QLatin1String("org.freedesktop.portal.ScreenCast"),
+                                                          QLatin1String("CreateSession"));
 
-    message << QVariantMap { { QLatin1String("session_handle_token"), getSessionToken() }, { QLatin1String( "handle_token" ), getRequestToken() } };
+    message << QVariantMap { { QLatin1String("session_handle_token"), getSessionToken() }, { QLatin1String("handle_token"), getRequestToken() } };
 
-    QDBusPendingCall pendingCall = QDBusConnection::sessionBus().asyncCall( message );
-    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher( pendingCall);
-    connect( watcher, &QDBusPendingCallWatcher::finished, this, [=] (QDBusPendingCallWatcher *watcher )
-    {
+    QDBusPendingCall pendingCall = QDBusConnection::sessionBus().asyncCall(message);
+    QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [ = ](QDBusPendingCallWatcher * watcher) {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
-        if ( reply.isError() ) {
+        if (reply.isError()) {
             qWarning() << "Couldn't get reply";
             qWarning() << "Error: " << reply.error().message();
-        } else
-        {
-            qDebug().noquote() << global::nameOutput << "Begin create portal session";
+        } else {
+            qDebug() << "Begin create portal session";
 
-            bool bo = QDBusConnection::sessionBus().connect( QString(),
-                                                   reply.value().path(),
-                                                   QLatin1String( "org.freedesktop.portal.Request" ),
-                                                   QLatin1String( "Response" ),
-                                                   this,
-                                                   SLOT( slot_gotCreateSessionResponse( uint, QVariantMap ) ) );
-            qDebug().noquote() << global::nameOutput << ">>> QDBusConnection::sessionBus().connect: " << bo;
+            bool bo = QDBusConnection::sessionBus().connect(QString(),
+                                                            reply.value().path(),
+                                                            QLatin1String("org.freedesktop.portal.Request"),
+                                                            QLatin1String("Response"),
+                                                            this,
+                                                            SLOT(slot_gotCreateSessionResponse(uint, QVariantMap)));
+            qDebug() << ">>> QDBusConnection::sessionBus().connect: " << bo;
         }
     });
 }
 
 
-void Portal_wl::slot_gotCreateSessionResponse( uint response, const QVariantMap &results )
+void Portal_wl::slot_gotCreateSessionResponse(uint response, const QVariantMap &results)
 {
-    qDebug().noquote() << global::nameOutput << "Got response from portal CreateSession";
+    qDebug() << "Got response from portal CreateSession";
 
-    if ( response != 0 )
-    {
+    if (response != 0) {
         qWarning() << "Failed to create session: " << response;
         return;
     }
@@ -122,29 +118,29 @@ void Portal_wl::slot_gotCreateSessionResponse( uint response, const QVariantMap 
 
     m_session = results.value(QLatin1String("session_handle")).toString();
 
-    qDebug().noquote() << global::nameOutput << ">>> m_session" << m_session;
+    qDebug() << ">>> m_session" << m_session;
 
 
     message << QVariant::fromValue(QDBusObjectPath(m_session))
-            << QVariantMap { { QLatin1String("multiple"), true},
-                             { QLatin1String("types"), (uint)Selection_Screen_Window_Area },
-                             { QLatin1String("cursor_mode"), (uint)record_mouse_onOff },
-                             { QLatin1String("handle_token"), getRequestToken() } };
+    << QVariantMap { { QLatin1String("multiple"), true},
+        { QLatin1String("types"), (uint)Selection_Screen_Window_Area },
+        { QLatin1String("cursor_mode"), (uint)record_mouse_onOff },
+        { QLatin1String("handle_token"), getRequestToken() } };
 
     QDBusPendingCall pendingCall = QDBusConnection::sessionBus().asyncCall(message);
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall);
-    connect(watcher, &QDBusPendingCallWatcher::finished, this, [=] (QDBusPendingCallWatcher *watcher) {
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [ = ](QDBusPendingCallWatcher * watcher) {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
         if (reply.isError()) {
             qWarning() << "Couldn't get reply";
             qWarning() << "Error: " << reply.error().message();
         } else {
             QDBusConnection::sessionBus().connect(QString(),
-                                                reply.value().path(),
-                                                QLatin1String("org.freedesktop.portal.Request"),
-                                                QLatin1String("Response"),
-                                                this,
-                                                SLOT( slot_gotSelectSourcesResponse(uint,QVariantMap)));
+                                                  reply.value().path(),
+                                                  QLatin1String("org.freedesktop.portal.Request"),
+                                                  QLatin1String("Response"),
+                                                  this,
+                                                  SLOT(slot_gotSelectSourcesResponse(uint, QVariantMap)));
         }
     });
 }
@@ -154,7 +150,7 @@ void Portal_wl::slot_gotSelectSourcesResponse(uint response, const QVariantMap &
 {
     Q_UNUSED(results);
 
-    qDebug().noquote() << global::nameOutput << "Got response from portal SelectSources";
+    qDebug() << "Got response from portal SelectSources";
 
     if (response != 0) {
         qWarning() << "Failed to select sources: " << response;
@@ -168,22 +164,22 @@ void Portal_wl::slot_gotSelectSourcesResponse(uint response, const QVariantMap &
 
     message << QVariant::fromValue(QDBusObjectPath(m_session))
             << QString() // parent_window
-            << QVariantMap { { QLatin1String("handle_token"), getRequestToken() } };
+    << QVariantMap { { QLatin1String("handle_token"), getRequestToken() } };
 
     QDBusPendingCall pendingCall = QDBusConnection::sessionBus().asyncCall(message);
     QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(pendingCall);
-    connect(watcher, &QDBusPendingCallWatcher::finished, this, [=] (QDBusPendingCallWatcher *watcher) {
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [ = ](QDBusPendingCallWatcher * watcher) {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
         if (reply.isError()) {
             qWarning() << "Couldn't get reply";
             qWarning() << "Error: " << reply.error().message();
         } else {
             QDBusConnection::sessionBus().connect(QString(),
-                                                reply.value().path(),
-                                                QLatin1String("org.freedesktop.portal.Request"),
-                                                QLatin1String("Response"),
-                                                this,
-                                                SLOT(slot_gotStartResponse(uint,QVariantMap)));
+                                                  reply.value().path(),
+                                                  QLatin1String("org.freedesktop.portal.Request"),
+                                                  QLatin1String("Response"),
+                                                  this,
+                                                  SLOT(slot_gotStartResponse(uint, QVariantMap)));
         }
     });
 }
@@ -191,20 +187,20 @@ void Portal_wl::slot_gotSelectSourcesResponse(uint response, const QVariantMap &
 
 void Portal_wl::slot_gotStartResponse(uint response, const QVariantMap &results)
 {
-   // Q_UNUSED(results);
+    // Q_UNUSED(results);
 
-    qDebug().noquote() << global::nameOutput << "Got response from portal Start";
+    qDebug() << "Got response from portal Start";
 
-    if ( response != 0 ) {
+    if (response != 0) {
         // The system Desktop dialog was canceled
-        qDebug().noquote() << global::nameOutput << "Failed to start or cancel dialog: " << response;
-        emit signal_portal_cancel( response );
+        qDebug() << "Failed to start or cancel dialog: " << response;
+        emit signal_portal_cancel(response);
         return;
     }
 
     Streams streams = qdbus_cast<Streams>(results.value(QLatin1String("streams")));
-    if(streams.size() == 0){
-        qDebug().noquote() << global::nameOutput << ">>> 无法获取流";
+    if (streams.size() == 0) {
+        qDebug() << ">>> 无法获取流";
 
     }
     Stream stream = streams.last();
@@ -219,14 +215,14 @@ void Portal_wl::slot_gotStartResponse(uint response, const QVariantMap &results)
     QDBusPendingCall pendingCall = QDBusConnection::sessionBus().asyncCall(message);
     pendingCall.waitForFinished();
     QDBusPendingReply<QDBusUnixFileDescriptor> reply = pendingCall.reply();
-    if ( reply.isError() ) {
+    if (reply.isError()) {
         qWarning() << "Failed to get fd for node_id";
     }
 
-    QString vk_fd = QString::number( reply.value().fileDescriptor() );
-    QString vk_path = QString::number( stream.node_id );
+    QString vk_fd = QString::number(reply.value().fileDescriptor());
+    QString vk_path = QString::number(stream.node_id);
 
-    emit signal_portal_fd_path( vk_fd, vk_path );
+    emit signal_portal_fd_path(vk_fd, vk_path);
 }
 
 
@@ -263,11 +259,11 @@ void Portal_wl::requestScreenSharing( int value )
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
         if (reply.isError())
         {
-            qDebug().noquote() << global::nameOutput << "Couldn't get reply";
-            qDebug().noquote() << global::nameOutput << "Error: " << reply.error().message();
+            qDebug() << "Couldn't get reply";
+            qDebug() << "Error: " << reply.error().message();
         } else
         {
-            qDebug().noquote() << global::nameOutput << "Begin create portal session";
+            qDebug() << "Begin create portal session";
             QDBusConnection::sessionBus().connect(QString(),
                                                   reply.value().path(),
                                                   QLatin1String("org.freedesktop.portal.Request"),
@@ -283,11 +279,11 @@ void Portal_wl::slot_gotCreateSessionResponse(uint response, const QVariantMap &
 {
     if ( response != 0 )
     {
-        qDebug().noquote() << global::nameOutput << "Failed to create portal session";
+        qDebug() << "Failed to create portal session";
         return;
     }
 
-    qDebug().noquote() << global::nameOutput << "Portal session was created successfully ";
+    qDebug() << "Portal session was created successfully ";
 
     QDBusMessage message = QDBusMessage::createMethodCall(QLatin1String("org.freedesktop.portal.Desktop"),
                                                           QLatin1String("/org/freedesktop/portal/desktop"),
@@ -308,8 +304,8 @@ void Portal_wl::slot_gotCreateSessionResponse(uint response, const QVariantMap &
     {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
         if (reply.isError()) {
-            qDebug().noquote() << global::nameOutput << "Couldn't get reply";
-            qDebug().noquote() << global::nameOutput << "Error: " << reply.error().message();
+            qDebug() << "Couldn't get reply";
+            qDebug() << "Error: " << reply.error().message();
         } else {
             QDBusConnection::sessionBus().connect(QString(),
                                                 reply.value().path(),
@@ -328,7 +324,7 @@ void Portal_wl::slot_gotSelectSourcesResponse( uint response, const QVariantMap 
 
     if ( response != 0 )
     {
-        qDebug().noquote() << global::nameOutput << "Failed to select sources: " << response;
+        qDebug() << "Failed to select sources: " << response;
         return;
     }
 
@@ -347,8 +343,8 @@ void Portal_wl::slot_gotSelectSourcesResponse( uint response, const QVariantMap 
     {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
         if (reply.isError()) {
-            qDebug().noquote() << global::nameOutput << "Couldn't get reply";
-            qDebug().noquote() << global::nameOutput << "Error: " << reply.error().message();
+            qDebug() << "Couldn't get reply";
+            qDebug() << "Error: " << reply.error().message();
         } else {
             QDBusConnection::sessionBus().connect(QString(),
                                                 reply.value().path(),
@@ -366,7 +362,7 @@ void Portal_wl::slot_gotStartResponse( uint response, const QVariantMap &results
     if ( response != 0 )
     {
         // The system Desktop dialog was canceled
-        qDebug().noquote() << global::nameOutput << "Failed to start: " << response;
+        qDebug() << "Failed to start: " << response;
         emit signal_portal_cancel();
         return;
     }
@@ -387,7 +383,7 @@ void Portal_wl::slot_gotStartResponse( uint response, const QVariantMap &results
     QDBusPendingReply<QDBusUnixFileDescriptor> reply = pendingCall.reply();
     if ( reply.isError() )
     {
-        qDebug().noquote() << global::nameOutput << "Failed to get fd for node_id " << stream.node_id;
+        qDebug() << "Failed to get fd for node_id " << stream.node_id;
     }
 
     vk_fd = QString::number( reply.value().fileDescriptor() );

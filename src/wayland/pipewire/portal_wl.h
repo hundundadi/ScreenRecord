@@ -20,7 +20,7 @@
 
 #ifndef PORTAL_WL_H
 #define PORTAL_WL_H
-
+#include <QDebug>
 #include <QFlags>
 #include <QLoggingCategory>
 #include <QMainWindow>
@@ -38,7 +38,7 @@ public:
 
     Portal_wl();
     ~Portal_wl();
-    void requestScreenSharing( int value, int mouseOnOff );
+    void requestScreenSharing(int value, int mouseOnOff);
 
 
 public Q_SLOTS:
@@ -65,8 +65,8 @@ protected:
 
 
 signals:
-    void signal_portal_fd_path( QString, QString );
-    void signal_portal_cancel( uint );
+    void signal_portal_fd_path(QString, QString);
+    void signal_portal_cancel(uint);
 
 
 

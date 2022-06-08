@@ -5,7 +5,6 @@
 #include <QProcessEnvironment>
 #include <DLog>
 
-#include "utils.h"
 #include "mainwindow.h"
 DWIDGET_USE_NAMESPACE
 bool isWaylandProtocol()
@@ -30,12 +29,11 @@ int main(int argc, char *argv[])
     a.setApplicationDescription("This is a dtk template application.");
     Dtk::Core::DLogManager::registerConsoleAppender();
     Dtk::Core::DLogManager::registerFileAppender();
-    gst_init(&argc, &argv);
 
     Utils::isWaylandMode = isWaylandProtocol();
-    qDebug() <<  QDateTime::currentDateTime().toString(Qt::DateFormat::LocalDate) <<"当前的系统环境是否是wayland： " << Utils::isWaylandMode;
+    qDebug() <<  QDateTime::currentDateTime().toString(Qt::DateFormat::LocalDate) << "当前的系统环境是否是wayland： " << Utils::isWaylandMode;
 
-    MainWindow *w = new MainWindow ();
+    MainWindow *w = new MainWindow();
     w->setMinimumSize(500, 500);
     w->show();
 

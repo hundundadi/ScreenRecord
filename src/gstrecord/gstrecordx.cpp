@@ -18,9 +18,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <QDebug>
+#include <QtConcurrent>
 
 #include "gstrecordx.h"
-#include "utils.h"
+#include "../common/utils.h"
 
 extern "C" {
 #include <gst/app/gstappsrc.h>
@@ -74,7 +76,7 @@ GstRecordX::GstRecordX(QObject *parent) : QObject(parent)
 void GstRecordX::initMemberVariables()
 {
     m_pipeline = nullptr;
-    m_audioType = AudioType::None;
+    m_audioType = AudioType::NoVoice;
     m_videoType = VideoType::webm;
     m_sysDevcieName = "";
     m_micDeviceName = "";

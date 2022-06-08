@@ -1,16 +1,36 @@
+/*
+ * Copyright © 2018 Red Hat, Inc
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Authors:
+ *       Jan Grulich <jgrulich@redhat.com>
+ */
+#include <QtConcurrent>
+#include "../../common/utils.h"
+
 #include "waylandintegration.h"
 #include "waylandintegration_p.h"
 #include <QDBusArgument>
 #include <QDBusMetaType>
-
+#include <QMutexLocker>
 #include <QEventLoop>
-#include <QLoggingCategory>
 #include <QThread>
 #include <QTimer>
 #include <QFile>
 #include <QPainter>
 #include <QImage>
-
 // KWayland
 #include <KWayland/Client/connection_thread.h>
 #include <KWayland/Client/event_queue.h>
@@ -19,25 +39,14 @@
 #include <KWayland/Client/remote_access.h>
 #include <KWayland/Client/outputdevice.h>
 
-// system
-#include <fcntl.h>
-#include <unistd.h>
-
-
-//=============
-
 #include <KLocalizedString>
-
-// KWayland
-#include <KWayland/Client/fakeinput.h>
 
 // system
 #include <sys/mman.h>
 #include <qdir.h>
-#include "recordadmin.h"
-
+#include <fcntl.h>
+#include <unistd.h>
 #include <string.h>
-#include <QMutexLocker>
 
 
 Q_LOGGING_CATEGORY(XdgDesktopPortalKdeWaylandIntegration, "xdp-kde-wayland-integration")
@@ -45,12 +54,15 @@ Q_LOGGING_CATEGORY(XdgDesktopPortalKdeWaylandIntegration, "xdp-kde-wayland-integ
 //取消自动析构机制，此处后续还需优化
 //Q_GLOBAL_STATIC(WaylandIntegration::WaylandIntegrationPrivate, globalWaylandIntegration)
 static WaylandIntegration::WaylandIntegrationPrivate *globalWaylandIntegration = new  WaylandIntegration::WaylandIntegrationPrivate();
-static int globalImageCount = 0;
-static qint32 m_fd = 0;
 
 void WaylandIntegration::init(QStringList list)
 {
     globalWaylandIntegration->initWayland(list);
+}
+
+void WaylandIntegration::init(QStringList list, GstRecordX *gstRecord)
+{
+    globalWaylandIntegration->initWayland(list, gstRecord);
 }
 
 bool WaylandIntegration::isEGLInitialized()
@@ -67,7 +79,13 @@ void WaylandIntegration::stopStreaming()
 
 bool WaylandIntegration::WaylandIntegrationPrivate::stopVideoRecord()
 {
-    return  m_recordAdmin->stopStream();
+    if (Utils::isFFmpegEnv) {
+
+    } else {
+        setBGetFrame(false);
+        isGstWriteVideoFrame = false;
+        return true;
+    }
 }
 
 QMap<quint32, WaylandIntegration::WaylandOutput> WaylandIntegration::screens()
@@ -149,7 +167,7 @@ WaylandIntegration::WaylandIntegrationPrivate::WaylandIntegrationPrivate()
     , m_remoteAccessManager(nullptr)
 {
     m_bInit = true;
-#if defined (__mips__) || defined (__sw_64__) || defined (__loongarch_64__)
+#if defined (__mips__) || defined (__sw_64__) || defined (__loongarch_64__) || defined (__loongarch__)
     m_bufferSize = 60;
 #elif defined (__aarch64__)
     m_bufferSize = 60;
@@ -159,11 +177,9 @@ WaylandIntegration::WaylandIntegrationPrivate::WaylandIntegrationPrivate()
     m_ffmFrame = nullptr;
     qDBusRegisterMetaType<WaylandIntegrationPrivate::Stream>();
     qDBusRegisterMetaType<WaylandIntegrationPrivate::Streams>();
-    m_recordAdmin = nullptr;
-    m_bInitRecordAdmin = true;
+    m_gstRecordX = nullptr;
     m_bGetFrame = true;
-    m_streamingEnabled = true;
-    //m_recordTIme = -1;
+    m_screenCount = 1;
 }
 
 WaylandIntegration::WaylandIntegrationPrivate::~WaylandIntegrationPrivate()
@@ -183,10 +199,7 @@ WaylandIntegration::WaylandIntegrationPrivate::~WaylandIntegrationPrivate()
         delete []m_ffmFrame;
         m_ffmFrame = nullptr;
     }
-    if (nullptr != m_recordAdmin) {
-        delete m_recordAdmin;
-        m_recordAdmin = nullptr;
-    }
+
 }
 
 bool WaylandIntegration::WaylandIntegrationPrivate::isEGLInitialized() const
@@ -204,6 +217,7 @@ void WaylandIntegration::WaylandIntegrationPrivate::bindOutput(int outputName, i
 void WaylandIntegration::WaylandIntegrationPrivate::stopStreaming()
 {
     if (m_streamingEnabled) {
+        m_appendFrameToListFlag = false;
         m_streamingEnabled = false;
 
         // First unbound outputs and destroy remote access manager so we no longer receive buffers
@@ -213,10 +227,6 @@ void WaylandIntegration::WaylandIntegrationPrivate::stopStreaming()
         }
         qDeleteAll(m_bindOutputs);
         m_bindOutputs.clear();
-        //        if (m_stream) {
-        //            delete m_stream;
-        //            m_stream = nullptr;
-        //        }
     }
 }
 
@@ -227,15 +237,19 @@ QMap<quint32, WaylandIntegration::WaylandOutput> WaylandIntegration::WaylandInte
 
 void WaylandIntegration::WaylandIntegrationPrivate::initWayland(QStringList list)
 {
-    qDebug() << __LINE__ << " WaylandIntegration::WaylandIntegrationPrivate::initWayland" ;
-    //通过wayland底层接口获取图片的方式不相同，需要获取电脑的厂商，hw的需要特殊处理
-    m_boardVendorType = getBoardVendorType();
-    qDebug() << "m_boardVendorType: " << m_boardVendorType;
     m_fps = list[5].toInt();
-
-    m_recordAdmin = new RecordAdmin(list, this);
-//    m_recordAdmin->init(static_cast<int>(m_screenSize.width()), static_cast<int>(m_screenSize.height()));
-    m_recordAdmin->setBoardVendor(m_boardVendorType);
+    //初始化wayland服务链接
+    initConnectWayland();
+}
+void WaylandIntegration::WaylandIntegrationPrivate::initWayland(QStringList list, GstRecordX *gstRecord)
+{
+    m_fps = list[5].toInt();
+    m_gstRecordX = gstRecord;
+    //初始化wayland服务链接
+    initConnectWayland();
+}
+void WaylandIntegration::WaylandIntegrationPrivate::initConnectWayland()
+{
     //设置获取视频帧
     setBGetFrame(true);
 
@@ -244,7 +258,6 @@ void WaylandIntegration::WaylandIntegrationPrivate::initWayland(QStringList list
 
     connect(m_connection, &KWayland::Client::ConnectionThread::connected, this, &WaylandIntegrationPrivate::setupRegistry, Qt::QueuedConnection);
     connect(m_connection, &KWayland::Client::ConnectionThread::connectionDied, this, [this] {
-        qDebug() << "KWayland::Client::ConnectionThread::connectionDied";
         if (m_queue)
         {
             delete m_queue;
@@ -266,7 +279,6 @@ void WaylandIntegration::WaylandIntegrationPrivate::initWayland(QStringList list
         }
     });
     connect(m_connection, &KWayland::Client::ConnectionThread::failed, this, [this] {
-        qDebug() << "KWayland::Client::ConnectionThread::failed";
         m_thread->quit();
         m_thread->wait();
     });
@@ -274,26 +286,27 @@ void WaylandIntegration::WaylandIntegrationPrivate::initWayland(QStringList list
     m_thread->start();
     m_connection->moveToThread(m_thread);
     m_connection->initConnection();
-
 }
-
-int WaylandIntegration::WaylandIntegrationPrivate::getBoardVendorType()
+//根据命令行 dmidecode -s system-product-name|awk '{print SNF}' 返回的结果判断是否是华为电脑
+int WaylandIntegration::WaylandIntegrationPrivate::getProductType()
 {
-    QFile file("/sys/class/dmi/id/board_vendor");
-    bool flag = file.open(QIODevice::ReadOnly | QIODevice::Text);
-    if (!flag) {
-        return 0;
-    }
-    QByteArray t = file.readAll();
-    QString result = QString(t);
-    if (result.isEmpty()) {
-        return 0;
-    }
-    file.close();
-    qDebug() << "/sys/class/dmi/id/board_vendor: " << result;
-    if (result.contains("HUAWEI")) {
+    QStringList options;
+    options << QString(QStringLiteral("-c"));
+    options << QString(QStringLiteral("dmidecode -s system-product-name|awk '{print $NF}'"));
+    QProcess process;
+    process.start(QString(QStringLiteral("bash")), options);
+    process.waitForFinished();
+    process.waitForReadyRead();
+    QByteArray tempArray =  process.readAllStandardOutput();
+    char *charTemp = tempArray.data();
+    QString str_output = QString(QLatin1String(charTemp));
+    process.close();
+    qInfo() << "system-product-name: " << str_output;
+    if (str_output.contains("KLVV", Qt::CaseInsensitive) ||
+            str_output.contains("KLVU", Qt::CaseInsensitive) ||
+            str_output.contains("PGUV", Qt::CaseInsensitive) ||
+            str_output.contains("PGUW", Qt::CaseInsensitive))
         return 1;
-    }
     return 0;
 }
 
@@ -340,7 +353,6 @@ void WaylandIntegration::WaylandIntegrationPrivate::removeOutput(quint32 name)
 
 void WaylandIntegration::WaylandIntegrationPrivate::onDeviceChanged(quint32 name, quint32 version)
 {
-    qDebug() << name;
     KWayland::Client::OutputDevice *devT = m_registry->createOutputDevice(name, version);
     if (devT && devT->isValid()) {
         connect(devT, &KWayland::Client::OutputDevice::changed, this, [ = ]() {
@@ -365,181 +377,157 @@ void WaylandIntegration::WaylandIntegrationPrivate::onDeviceChanged(quint32 name
     }
 }
 
-void WaylandIntegration::WaylandIntegrationPrivate::processBuffer(const KWayland::Client::RemoteBuffer *rbuf)
-{
-    //qDebug() << Q_FUNC_INFO;
-    QScopedPointer<const KWayland::Client::RemoteBuffer> guard(rbuf);
-    auto dma_fd = rbuf->fd();
-    quint32 width = rbuf->width();
-    quint32 height = rbuf->height();
-    quint32 stride = rbuf->stride();
-    //    if(!bGetFrame())
-    //        return;
-    if (m_bInitRecordAdmin) {
-        m_bInitRecordAdmin = false;
-        m_recordAdmin->init(static_cast<int>(m_screenSize.width()), static_cast<int>(m_screenSize.height()));
-        frameStartTime =  QDateTime::currentMSecsSinceEpoch();
-    }
-    unsigned char *mapData = static_cast<unsigned char *>(mmap(nullptr, stride * height, PROT_READ, MAP_SHARED, dma_fd, 0));
-    if (MAP_FAILED == mapData) {
-        qCWarning(XdgDesktopPortalKdeWaylandIntegration) << "dma fd " << dma_fd << " mmap failed - ";
-    }
-    //appendBuffer(mapData, static_cast<int>(width), static_cast<int>(height), static_cast<int>(stride), avlibInterface::m_av_gettime() - frameStartTime);
-    munmap(mapData, stride * height);
-    close(dma_fd);
-}
 void WaylandIntegration::WaylandIntegrationPrivate::processBufferX86(const KWayland::Client::RemoteBuffer *rbuf, const QRect rect)
 {
-//    qDebug() << __LINE__ << " WaylandIntegration::WaylandIntegrationPrivate::processBufferX86";
-
     QScopedPointer<const KWayland::Client::RemoteBuffer> guard(rbuf);
     auto dma_fd = rbuf->fd();
     quint32 width = rbuf->width();
     quint32 height = rbuf->height();
     quint32 stride = rbuf->stride();
-    if (m_bInitRecordAdmin) {
-        m_bInitRecordAdmin = false;
-        m_recordAdmin->init(static_cast<int>(m_screenSize.width()), static_cast<int>(m_screenSize.height()));
-        frameStartTime =  QDateTime::currentMSecsSinceEpoch();
+    if (m_firstAppedFrame) {
+        m_firstAppedFrame = false;
+        if (Utils::isFFmpegEnv) {
+
+        } else {
+            frameStartTime = QDateTime::currentMSecsSinceEpoch();
+            isGstWriteVideoFrame = true;
+            if (m_gstRecordX) {
+                m_gstRecordX->waylandGstStartRecord();
+            } else {
+                qWarning() << "m_gstRecordX is nullptr!";
+            }
+            QtConcurrent::run(this, &WaylandIntegrationPrivate::gstWriteVideoFrame);
+        }
+        m_appendFrameToListFlag = true;
+        QtConcurrent::run(this, &WaylandIntegrationPrivate::appendFrameToList);
     }
-    QImage img0 = getImage(dma_fd, width, height, stride, rbuf->format());
-    //img0 = img0.scaled(640,480);
     QImage img(m_screenSize, QImage::Format_RGBA8888);
-    if (m_curScreenDate.size() + 1 < m_screenCount) {
-        m_curScreenDate.append(QPair<QRect, QImage>(rect, img0));
-        return;
-    } else {
-        QPainter painter(&img);
-        for (auto itr = m_curScreenDate.begin(); itr != m_curScreenDate.end(); ++itr) {
-            painter.drawImage(itr->first.topLeft(), itr->second);
-        }
-        painter.drawImage(rect.topLeft(), img0);
-        m_curScreenDate.clear();
-    }
-
-    if (img.isNull()) {
-        qDebug() << "获取图片失败！";
-        return ;
-    }
-    //img = img.copy(0,0,800,600);
-    int step = 0;
-    switch (m_fps) {
-    case 5:
-        step = 6;
-        break;
-    case 10:
-        step = 3;
-        break;
-    case 20:
-        step = 2;
-        break;
-    default:
-        step = 0;
-    }
-    step = 6;
-    //qDebug() << "m_waylandList.size(): " << m_waylandList.size() << " , m_freeList.size(): " << m_freeList.size();
-    if (step != 0) {
-        if (globalImageCount % step == 0) {
-            appendBuffer(img.bits(), static_cast<int>(img.width()), static_cast<int>(img.height()), static_cast<int>(4 * img.width()), QDateTime::currentMSecsSinceEpoch() - frameStartTime);
+    if (m_screenCount == 1) {
+        m_curNewImage.first = 0;//avlibInterface::m_av_gettime() - frameStartTime;
+        {
+            QMutexLocker locker(&m_bGetScreenImageMutex);
+            m_curNewImage.second = getImage(dma_fd, width, height, stride, rbuf->format());
         }
     } else {
-        appendBuffer(img.bits(), static_cast<int>(img.width()), static_cast<int>(img.height()), static_cast<int>(4 * img.width()), QDateTime::currentMSecsSinceEpoch() - frameStartTime);
+        m_ScreenDateBuf.append(QPair<QRect, QImage>(rect, getImage(dma_fd, width, height, stride, rbuf->format())));
+        if (m_ScreenDateBuf.size() ==  m_screenCount) {
+            QMutexLocker locker(&m_bGetScreenImageMutex);
+            m_curNewImageScreen.clear();
+            for (auto itr = m_ScreenDateBuf.begin(); itr != m_ScreenDateBuf.end(); ++itr) {
+                m_curNewImageScreen.append(*itr);
+            }
+            m_ScreenDateBuf.clear();
+        }
     }
-
-    globalImageCount++;
     close(dma_fd);
 }
-
-void WaylandIntegration::WaylandIntegrationPrivate::createCacheFile(qint32 kwinFd)
+//通过线程每30ms钟向数据池中取出一张图片添加到环形缓冲区，以便后续视频编码
+void WaylandIntegration::WaylandIntegrationPrivate::appendFrameToList()
 {
-    qDebug() << "createCacheFile start!";
-    QString userName = QDir::homePath().section("/", -1, -1);
-    std::string path = QString("/tmp/test/").toStdString();
-    QDir tdir(path.c_str());
-    //判断文件夹路径是否存在
-    if (!tdir.exists()) {
-        tdir.mkpath(path.c_str());
-    }
-    path += "1.txt";
-    //判断文件是否存在，若存在则先删除文件
-    QFile mFile(path.c_str());
-    if (mFile.exists()) {
-        remove(path.c_str());
-    }
-    //打开文件
-    int fd = open(path.c_str(), O_RDWR | O_CREAT, 0644);
-    if (fd == -1) {
-        qDebug() << "open file fail!" << strerror(errno);
-        return;
-    }
-    //文件加锁
-    int flock = lockf(fd, F_TLOCK, 0);
-    if (flock == -1) {
-        qDebug() << "lock file fail!" << strerror(errno);
-        return;
-    }
-    ssize_t ret = -1;
+    int64_t delayTime = 1000 / m_fps  + 1;
+    //qDebug() << "delayTime: " << delayTime;
+#ifdef __mips__
+    //delayTime = 150;
+#endif
+    //qDebug() << "QDateTime::currentMSecsSinceEpoch(): " << QDateTime::currentMSecsSinceEpoch() << " , avlibInterface::m_av_gettime(): " << avlibInterface::m_av_gettime();
+    while (m_appendFrameToListFlag) {
+        if (m_screenCount == 1) {
+            QImage tempImage;
+            {
+                QMutexLocker locker(&m_bGetScreenImageMutex);
+                tempImage = m_curNewImage.second.copy();
+            }
+            if (!tempImage.isNull()) {
+                //qDebug() << "用来编码的帧索引glovbalImageCount: " << globalImageCount;
+                int64_t temptime = 0;
+                if (Utils::isFFmpegEnv) {
+                    temptime =  QDateTime::currentMSecsSinceEpoch();
 
-    char *wBuffer = QString::number(kwinFd).toLatin1().data();
-    //写文件
-    ret = write(fd, wBuffer, static_cast<size_t>(QString::number(kwinFd).size()));
-    if (ret < 0) {
-        qDebug() << "write file fail!";
-        return ;
-    }
-    flock = lockf(fd, F_ULOCK, 0);
-    ::close(fd);
-    qDebug() << "createCacheFile end!";
+                } else {
+                    temptime = QDateTime::currentMSecsSinceEpoch();
 
+                }
+                appendBuffer(tempImage.bits(), static_cast<int>(tempImage.width()), static_cast<int>(tempImage.height()),
+                             static_cast<int>(tempImage.width() * 4), temptime/*- frameStartTime*/);
+            }
+            QThread::msleep(static_cast<unsigned long>(delayTime));
+        } else {
+            //多屏录制
+            int64_t curFramTime = 0;
+            if (Utils::isFFmpegEnv) {
+                curFramTime =  QDateTime::currentMSecsSinceEpoch();
+
+            } else {
+                curFramTime = QDateTime::currentMSecsSinceEpoch();
+
+            }
+#if 0
+            cv::Mat res;
+            res.create(cv::Size(m_screenSize.width(), m_screenSize.height()), CV_8UC4);
+            res = cv::Scalar::all(0);
+            for (auto itr = m_curNewImageScreen.begin(); itr != m_curNewImageScreen.end(); ++itr) {
+                cv::Mat temp = cv::Mat(itr->second.height(), itr->second.width(), CV_8UC4,
+                                       const_cast<uchar *>(itr->second.bits()), static_cast<size_t>(itr->second.bytesPerLine()));
+                temp.copyTo(res(cv::Rect(itr->first.x(), itr->first.y(), itr->first.width(), itr->first.height())));
+            }
+            m_curNewImageScreen.clear();
+            QImage img = QImage(res.data, res.cols, res.rows, static_cast<int>(res.step), QImage::Format_RGBA8888);
+#else
+
+            QVector<QPair<QRect, QImage>> tempImageVec;
+            {
+                QMutexLocker locker(&m_bGetScreenImageMutex);
+                if (m_curNewImageScreen.size() != m_screenCount) continue;
+                for (auto itr = m_curNewImageScreen.begin(); itr != m_curNewImageScreen.end(); ++itr) {
+                    tempImageVec.append(*itr);
+                }
+            }
+            QImage img(m_screenSize, QImage::Format_RGBA8888);
+            img.fill(Qt::GlobalColor::black);
+            QPainter painter(&img);
+            for (auto itr = tempImageVec.begin(); itr != tempImageVec.end(); ++itr) {
+                painter.drawImage(itr->first.topLeft(), itr->second);
+            }
+            tempImageVec.clear();
+#endif
+            appendBuffer(img.bits(), img.width(), img.height(), img.width() * 4, curFramTime - frameStartTime);
+            // 计算拼接的时的耗时
+            int64_t t = 0;
+            if (Utils::isFFmpegEnv) {
+                t = (QDateTime::currentMSecsSinceEpoch() - curFramTime) / 1000;
+
+            } else {
+                t = (QDateTime::currentMSecsSinceEpoch() - curFramTime) / 1000;
+
+            }
+            qDebug() << delayTime - t;
+            if (t < delayTime) {
+                QThread::msleep(static_cast<unsigned long>(delayTime - t));
+            }
+        }
+    }
 }
-
-unsigned char *WaylandIntegration::WaylandIntegrationPrivate::getImageData(int32_t fd, uint32_t width, uint32_t height, uint32_t stride, uint32_t format)
+//通过线程循环向gstreamer管道写入视频帧数据
+void WaylandIntegration::WaylandIntegrationPrivate::gstWriteVideoFrame()
 {
-    QImage tempImage;
-    tempImage = QImage(static_cast<int>(width), static_cast<int>(height), QImage::Format_RGBA8888);
-    eglMakeCurrent(m_eglstruct.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, m_eglstruct.ctx);
-    EGLint importAttributes[] = {EGL_WIDTH,
-                                 static_cast<int>(width),
-                                 EGL_HEIGHT,
-                                 static_cast<int>(height),
-                                 EGL_LINUX_DRM_FOURCC_EXT,
-                                 static_cast<int>(format),
-                                 EGL_DMA_BUF_PLANE0_FD_EXT,
-                                 fd,
-                                 EGL_DMA_BUF_PLANE0_OFFSET_EXT,
-                                 0,
-                                 EGL_DMA_BUF_PLANE0_PITCH_EXT,
-                                 static_cast<int>(stride),
-                                 EGL_NONE
-                                };
-    EGLImageKHR image = eglCreateImageKHR(m_eglstruct.dpy, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, importAttributes);
-    if (image == EGL_NO_IMAGE_KHR) {
-        qDebug() << "未获取到图片！！！";
-        return nullptr;
+    waylandFrame frame;
+    while (isWriteVideo()) {
+        if (getFrame(frame)) {
+            if (m_gstRecordX) {
+                m_gstRecordX->waylandWriteVideoFrame(frame._frame, frame._width, frame._height);
+            } else {
+                qWarning() << "m_gstRecordX is nullptr!";
+            }
+        } else {
+            //qDebug() << "视频缓冲区无数据！";
+        }
     }
-
-    // create GL 2D texture for framebuffer
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
-
-    GLuint fbo;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempImage.bits());
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    glDeleteFramebuffers(1, &fbo);
-    glDeleteTextures(1, &texture);
-    eglDestroyImageKHR(m_eglstruct.dpy, image);
-
-    return tempImage.bits();
+    //等待wayland视频环形队列中的视频帧，全部写入管道
+    if (m_gstRecordX) {
+        m_gstRecordX->waylandGstStopRecord();
+    } else {
+        qWarning() << "m_gstRecordX is nullptr!";
+    }
 }
 QImage WaylandIntegration::WaylandIntegrationPrivate::getImage(int32_t fd, uint32_t width, uint32_t height, uint32_t stride, uint32_t format)
 {
@@ -591,7 +579,6 @@ QImage WaylandIntegration::WaylandIntegrationPrivate::getImage(int32_t fd, uint3
 }
 void WaylandIntegration::WaylandIntegrationPrivate::setupRegistry()
 {
-    qDebug() << __LINE__ << " WaylandIntegration::WaylandIntegrationPrivate::setupRegistry";
     initEgl();
     m_queue = new KWayland::Client::EventQueue(this);
     m_queue->setup(m_connection);
@@ -615,14 +602,7 @@ void WaylandIntegration::WaylandIntegrationPrivate::setupRegistry()
         connect(m_remoteAccessManager, &KWayland::Client::RemoteAccessManager::bufferReady, this, [this](const void *output, const KWayland::Client::RemoteBuffer * rbuf) {
             QRect screenGeometry = (KWayland::Client::Output::get(reinterpret_cast<wl_output *>(const_cast<void *>(output))))->geometry();
             connect(rbuf, &KWayland::Client::RemoteBuffer::parametersObtained, this, [this, rbuf, screenGeometry] {
-
-                if (m_boardVendorType)
-                {
-                    processBuffer(rbuf);
-                } else
-                {
-                    processBufferX86(rbuf, screenGeometry);
-                }
+                processBufferX86(rbuf, screenGeometry);
             });
         });
     }
@@ -670,7 +650,8 @@ void WaylandIntegration::WaylandIntegrationPrivate::initEgl()
     m_eglstruct.ctx = eglCreateContext(m_eglstruct.dpy, m_eglstruct.conf,
                                        EGL_NO_CONTEXT, context_attribs);
     assert(m_eglstruct.ctx);
-    qDebug() << "egl init success!";
+
+    printf("egl init success!\n");
 }
 void WaylandIntegration::WaylandIntegrationPrivate::appendBuffer(unsigned char *frame, int width, int height, int stride, int64_t time)
 {
@@ -680,7 +661,6 @@ void WaylandIntegration::WaylandIntegrationPrivate::appendBuffer(unsigned char *
     int size = height * stride;
     unsigned char *ch = nullptr;
     if (m_bInit) {
-        qDebug() << " >>>>> appendBuffer(创建缓存空间)";
         m_bInit = false;
         m_width = width;
         m_height = height;
@@ -696,7 +676,7 @@ void WaylandIntegration::WaylandIntegrationPrivate::appendBuffer(unsigned char *
     if (m_waylandList.size() >= m_bufferSize) {
         //先进先出
         //取队首
-        Global::waylandFrame wFrame = m_waylandList.first();
+        waylandFrame wFrame = m_waylandList.first();
         memset(wFrame._frame, 0, static_cast<size_t>(size));
         //拷贝当前帧
         memcpy(wFrame._frame, frame, static_cast<size_t>(size));
@@ -712,7 +692,7 @@ void WaylandIntegration::WaylandIntegrationPrivate::appendBuffer(unsigned char *
         //qDebug() << "环形缓冲区已满，删队首，存队尾";
     } else if (0 <= m_waylandList.size() &&  m_waylandList.size() < m_bufferSize) {
         if (m_freeList.size() > 0) {
-            Global::waylandFrame wFrame;
+            waylandFrame wFrame;
             wFrame._time = time;
             wFrame._width = width;
             wFrame._height = height;
@@ -729,12 +709,12 @@ void WaylandIntegration::WaylandIntegrationPrivate::appendBuffer(unsigned char *
             m_freeList.removeFirst();
         }
     }
-    qDebug() << "存视频帧: m_waylandList.size(): " << m_waylandList.size() << " , m_freeList.size(): " << m_freeList.size() << globalImageCount;
+    //qDebug() << "存视频帧 m_waylandList.size(): " << m_waylandList.size() << " , m_freeList.size(): " << m_freeList.size();
 }
 
 int WaylandIntegration::WaylandIntegrationPrivate::frameIndex = 0;
 
-bool WaylandIntegration::WaylandIntegrationPrivate::getFrame(Global::waylandFrame &frame)
+bool WaylandIntegration::WaylandIntegrationPrivate::getFrame(waylandFrame &frame)
 {
     QMutexLocker locker(&m_mutex);
     if (m_waylandList.size() <= 0 || nullptr == m_ffmFrame) {
@@ -745,7 +725,7 @@ bool WaylandIntegration::WaylandIntegrationPrivate::getFrame(Global::waylandFram
     } else {
         int size = m_height * m_stride;
         //取队首，先进先出
-        Global::waylandFrame wFrame = m_waylandList.first();
+        waylandFrame wFrame = m_waylandList.first();
         frame._width = wFrame._width;
         frame._height = wFrame._height;
         frame._stride = wFrame._stride;
@@ -759,8 +739,8 @@ bool WaylandIntegration::WaylandIntegrationPrivate::getFrame(Global::waylandFram
         m_waylandList.removeFirst();
         //回收空闲内存，重复使用
         m_freeList.append(wFrame._frame);
-        qDebug() << "获取视频帧: m_waylandList.size(): " << m_waylandList.size() << " , m_freeList.size(): " << m_freeList.size();
         //qDebug() << "获取视频帧";
+        //qDebug() << "获取视频帧 m_waylandList.size(): " << m_waylandList.size() << " , m_freeList.size(): " << m_freeList.size();
         return true;
     }
 }
@@ -768,14 +748,15 @@ bool WaylandIntegration::WaylandIntegrationPrivate::getFrame(Global::waylandFram
 bool WaylandIntegration::WaylandIntegrationPrivate::isWriteVideo()
 {
     QMutexLocker locker(&m_mutex);
-    if (m_recordAdmin->m_writeFrameThread->bWriteFrame()) {
+    if (Utils::isFFmpegEnv) {
         return true;
+
     } else {
-        if (m_waylandList.isEmpty()) {
-            m_recordAdmin->m_gstVideoWriter->stop();
+        if (isGstWriteVideoFrame) {
+            return true;
         }
-        return !m_waylandList.isEmpty();
     }
+    return !m_waylandList.isEmpty();
 }
 
 bool WaylandIntegration::WaylandIntegrationPrivate::bGetFrame()
@@ -789,10 +770,3 @@ void WaylandIntegration::WaylandIntegrationPrivate::setBGetFrame(bool bGetFrame)
     QMutexLocker locker(&m_bGetFrameMutex);
     m_bGetFrame = bGetFrame;
 }
-
-qint32 WaylandIntegration::getFd()
-{
-    return m_fd;
-}
-
-

@@ -5,9 +5,8 @@
 #include <DSysInfo>
 #include <DWindowManagerHelper>
 
-#include<QObject>
-#include <QtX11Extras/QX11Info>
-#include <X11/extensions/shape.h>
+#include <QObject>
+
 
 DWIDGET_USE_NAMESPACE
 DCORE_USE_NAMESPACE
@@ -16,6 +15,7 @@ class Utils: public QObject
 {
 public:
     static bool isWaylandMode;
+    static bool isFFmpegEnv;
 
 public:
     Utils();

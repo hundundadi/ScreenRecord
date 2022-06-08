@@ -21,13 +21,11 @@
 #ifndef GSTRECORDX_H
 #define GSTRECORDX_H
 
-#include <QDebug>
-
 #include <QString>
 #include <QRect>
 #include <QMutex>
 #include <QDateTime>
-#include <QtConcurrent>
+
 #include <QObject>
 
 #include <gst/gst.h>
@@ -41,7 +39,7 @@ class GstRecordX : public QObject
     Q_OBJECT
 public:
     enum AudioType {
-        None = 0,  //无声音
+        NoVoice = 0,  //无声音
         Mic = 1, //单麦克风
         Sys, //单系统音
         Mix //混音

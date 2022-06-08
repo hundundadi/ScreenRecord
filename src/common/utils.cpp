@@ -1,7 +1,9 @@
 #include "utils.h"
-
+#include <QtX11Extras/QX11Info>
+#include <X11/extensions/shape.h>
 
 bool Utils::isWaylandMode = false;
+bool Utils::isFFmpegEnv = false;
 
 Utils::Utils()
 {

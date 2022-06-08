@@ -1,8 +1,27 @@
+/*
+ * Copyright © 2018 Red Hat, Inc
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library. If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Authors:
+ *       Jan Grulich <jgrulich@redhat.com>
+ */
+
 #ifndef XDG_DESKTOP_PORTAL_KDE_WAYLAND_INTEGRATION_P_H
 #define XDG_DESKTOP_PORTAL_KDE_WAYLAND_INTEGRATION_P_H
 
 #include "waylandintegration.h"
-#include "../../global.h"
 
 #include <QDateTime>
 #include <QObject>
@@ -57,17 +76,17 @@ public:
         EGLContext ctx;
         EGLConfig conf;
     };
-//    //缓存帧
-//    struct waylandFrame {
-//        //时间戳
-//        int64_t _time;
-//        //索引
-//        int _index;
-//        int _width;
-//        int _height;
-//        int _stride;
-//        unsigned char *_frame;
-//    };
+    //缓存帧
+    struct waylandFrame {
+        //时间戳
+        int64_t _time;
+        //索引
+        int _index;
+        int _width;
+        int _height;
+        int _stride;
+        unsigned char *_frame;
+    };
 
     typedef struct {
         uint nodeId;
@@ -81,12 +100,18 @@ public:
     //void initDrm();
     //void initEGL();
     void initWayland(QStringList list);
+    void initWayland(QStringList list, GstRecordX *gstRecord);
 
     /**
-     * @brief 从电脑/sys/class/dmi/id/board_vendor文件获取，电脑的厂商
+     * @brief 初始化wayland链接
+     */
+    void initConnectWayland();
+
+    /**
+     * @brief 根据命令行 dmidecode -s system-product-name|awk '{print SNF}' 返回的结果判断是否是华为电脑
      * @return 0:非hw电脑 1:hw电脑
      */
-    int getBoardVendorType();
+    int getProductType();
 
     bool isEGLInitialized() const;
 
@@ -101,10 +126,7 @@ public:
      */
     bool stopVideoRecord();
     inline bool writeFrameToStream();
-//    //录屏管理器
-    RecordAdmin *m_recordAdmin;
-    //是否初始化录屏管理
-    bool m_bInitRecordAdmin;
+
     //WriteFrameThread *m_writeFrameThread;
     //     pthread_t m_writeFrameThread;
 protected Q_SLOTS:
@@ -112,27 +134,19 @@ protected Q_SLOTS:
     void removeOutput(quint32 name);
     void onDeviceChanged(quint32 name, quint32 version);
     /**
-     * @brief 通过mmap的方式获取视频画面帧
-     * @param rbuf
-     */
-    void processBuffer(const KWayland::Client::RemoteBuffer *rbuf);
-    /**
      * @brief 此接口为了解决x86架构录屏mmap失败及花屏问题
      * @param rbuf
      */
     void processBufferX86(const KWayland::Client::RemoteBuffer *rbuf, const QRect rect);
+    /**
+     * @brief 通过线程每30ms钟向数据池中取出一张图片添加到环形缓冲区，以便后续视频编码
+     */
+    void appendFrameToList();
 
     /**
-     * @brief 从wayland客户端获取当前屏幕的截图
-     * @param fd
-     * @param width
-     * @param height
-     * @param stride
-     * @param format
-     * @return
+     * @brief 通过线程循环向gstreamer管道写入视频帧数据
      */
-    unsigned char *getImageData(int32_t fd, uint32_t width, uint32_t height, uint32_t stride,
-                                uint32_t format);
+    void gstWriteVideoFrame();
     /**
         * @brief 从wayland客户端获取当前屏幕的截图
         * @param fd
@@ -154,7 +168,6 @@ protected Q_SLOTS:
      */
     void initEgl();
 
-
 private:
     /**
      * @brief appendBuffer:存视频帧
@@ -173,7 +186,7 @@ public:
      * @param frame:视频帧
      * @return
      */
-    bool getFrame(Global::waylandFrame &frame);
+    bool getFrame(waylandFrame &frame);
 
     bool isWriteVideo();
 
@@ -181,14 +194,7 @@ public:
     void setBGetFrame(bool bGetFrame);
 
     int m_fps = 0;
-protected:
-    void createCacheFile(qint32 fd);
 private:
-
-    /**
-     * @brief 是否是hw电脑
-     */
-    int m_boardVendorType = 0;
     //缓存帧容量
     int m_bufferSize;
     int m_width = 0;
@@ -198,9 +204,18 @@ private:
     bool m_bInit;
     QMutex m_mutex;
     //wayland缓冲区
-    QList<Global::waylandFrame> m_waylandList;
+    QList<waylandFrame> m_waylandList;
     //空闲内存
     QList<unsigned char *> m_freeList;
+
+    QPair<qint64, QImage> m_curNewImage;
+    /**
+     * @brief 从数据池取取数据的线程的开关。当数据池有数据时被启动
+     */
+    bool m_appendFrameToListFlag = false;
+
+
+    bool m_firstAppedFrame = true;
     //ffmpeg视频帧
     unsigned char *m_ffmFrame;
     //起始时间戳
@@ -236,11 +251,19 @@ private:
      * @brief 自定义egl的结构体
      */
     struct EglStruct m_eglstruct;
-
+    QMutex m_bGetScreenImageMutex;
     QMap<QString, QRect> m_screenId2Point;
-    QVector<QPair<QRect, QImage>> m_curScreenDate;
+    QVector<QPair<QRect, QImage>> m_ScreenDateBuf;
+    QVector<QPair<QRect, QImage>> m_curNewImageScreen;
     QSize m_screenSize;
     int m_screenCount;
+
+    /**
+     * @brief 是否写入Gstreamer视频帧画面
+     */
+    bool isGstWriteVideoFrame = false;
+
+    GstRecordX *m_gstRecordX;
 };
 
 }
