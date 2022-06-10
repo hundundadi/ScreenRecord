@@ -403,6 +403,62 @@ QString GstRecordX::getAudioPipeline(const QString &audioDevName, const QString 
     return result;
 }
 
+void GstRecordX::slot_start_gst( QString vk_fd, QString vk_path )
+{
+    qDebug() << "pipewire record screen!!!!";
+    QStringList stringList;
+    stringList << QString( "pipewiresrc fd=" ).append( vk_fd ).append( " path=" ).append( vk_path ).append( " do-timestamp=true" );
+    stringList << "videoconvert";
+    stringList << "videorate";
+//    if ( ui->radioButtonScreencastArea->isChecked() ) { stringList << get_Area_Videocrop(); }
+//    stringList << "videocrop top=" + top + " " + "right=" + right + " " + "bottom=" + bottom + " " + "left=" + left;
+
+    stringList << "video/x-raw, framerate=" + QString::number( m_framerate) + "/1";
+    stringList << "vp8enc min-quantizer=1 max-quantizer=50 undershoot=95 cpu-used=5 deadline=1 static-threshold=50 error-resilient=1";
+    stringList << "webmmux name=mux";
+
+    stringList << "filesink location=" + m_savePath;
+
+    QString launch = stringList.join( " ! " );
+    //格式化输出Gstreamer管道构建命令行
+    pipelineStructuredOutput(launch);
+    m_pipeline = gst_parse_launch( launch.toUtf8(), nullptr );
+    gst_element_set_state( m_pipeline, GST_STATE_PLAYING );
+}
+
+void GstRecordX::slot_start_gst( QString vk_fd, QString vk_path , QString vk_path2)
+{
+    qDebug() << "pipewire record screen!!!!";
+    QStringList stringList;
+    stringList << QString( "pipewiresrc fd=" ).append( vk_fd ).append( " path=" ).append( vk_path ).append( " do-timestamp=true" );
+    //    stringList << "videobox border-alpha=0 top=0 left=0";
+    stringList << "videoconvert";
+    stringList << "videorate";
+    stringList << "videocrop top= 200 right=0 bottom=500 left=500";
+    stringList << "video/x-raw, framerate=" + QString::number( m_framerate) + "/1";
+
+    stringList << "mix. " + QString( "pipewiresrc fd=" ).append( vk_fd ).append( " path=" ).append( vk_path2 ).append( " do-timestamp=true" );
+    stringList << "videobox border-alpha=0 top=0 left=-1920 ";
+    stringList << "videoconvert";
+    stringList << "videorate";
+    stringList << "videocrop top= 200 right=500 bottom=500 left=0";
+    stringList << "video/x-raw, framerate=" + QString::number( m_framerate) + "/1";
+
+    stringList << "mix. videomixer name=mix sink_0::alpha=1 sink_1::alpha=1";
+
+    stringList << "videoconvert";
+    stringList << "vp8enc min-quantizer=1 max-quantizer=50 undershoot=95 cpu-used=5 deadline=1 static-threshold=50 error-resilient=1";
+    stringList << "webmmux name=mux";
+
+    stringList << "filesink location=" + m_savePath;
+
+    QString launch = stringList.join( " ! " );
+    //格式化输出Gstreamer管道构建命令行
+    pipelineStructuredOutput(launch);
+    m_pipeline = gst_parse_launch( launch.toUtf8(), nullptr );
+    gst_element_set_state( m_pipeline, GST_STATE_PLAYING );
+}
+
 //停止管道，x11和wayland可共用
 void GstRecordX::stopPipeline()
 {
@@ -436,7 +492,8 @@ void GstRecordX::pipelineStructuredOutput(QString pipeline)
     pipeline.replace("mix.", "mix. " + nl + "\n   ");
     string = pipeline.replace("!", nl + "\n        !");
     string.append("\n");
-    printf("%s\n", string.toLocal8Bit().data());
+//    printf("%s\n", string.toLocal8Bit().data());
+    qInfo() << "\n" << string.toLocal8Bit().data();
 }
 
 GstRecordX::~GstRecordX()

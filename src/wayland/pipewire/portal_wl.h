@@ -20,6 +20,7 @@
 
 #ifndef PORTAL_WL_H
 #define PORTAL_WL_H
+#include "pw_framebuffer.h"
 #include <QDebug>
 #include <QFlags>
 #include <QLoggingCategory>
@@ -36,9 +37,12 @@ public:
     } Stream;
     typedef QList<Stream> Streams;
 
-    Portal_wl();
+    Portal_wl(QString name = "未命名");
     ~Portal_wl();
     void requestScreenSharing(int value, int mouseOnOff);
+
+    void setSessionToken(int sessionToken);
+    void setRequestToken(int requestToken);
 
 
 public Q_SLOTS:
@@ -51,6 +55,9 @@ private slots:
 
 
 private:
+    QString m_name;
+
+
     QString getSessionToken();
     QString getRequestToken();
 
@@ -61,11 +68,13 @@ private:
     int Selection_Screen_Window_Area = 1;
     int record_mouse_onOff;
 
+    PWFrameBuffer* m_pwFrameBuffer = nullptr;
 protected:
 
 
 signals:
     void signal_portal_fd_path(QString, QString);
+    void signal_portal_fd_path(QString, QString,QString);
     void signal_portal_cancel(uint);
 
 

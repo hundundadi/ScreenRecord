@@ -16,6 +16,7 @@ class Utils: public QObject
 public:
     static bool isWaylandMode;
     static bool isFFmpegEnv;
+    static bool isPipewireMode;
 
 public:
     Utils();

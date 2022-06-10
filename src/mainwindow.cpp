@@ -1,5 +1,11 @@
 #include "mainwindow.h"
 #include <QStandardPaths>
+
+// system
+// system
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
 MainWindow::MainWindow()
 {
     initMemberVariables();
@@ -74,6 +80,7 @@ void MainWindow::onStartRecord()
     m_recordRect = QRect(this->x(), this->y(), this->x() + this->width(), this->y() + this->height());
     m_framerate = 24;
     recordAudioInputType = 3;
+    Utils::isPipewireMode = true;
     GstStartRecord();
 
 }
@@ -82,6 +89,8 @@ void MainWindow::onStopRecord()
     qDebug() <<  QDateTime::currentDateTime().toString(Qt::DateFormat::LocalDate) << "结束录屏！";
     GstStopRecord();
 }
+
+
 void MainWindow::GstStartRecord()
 {
     int argc = 1;
@@ -116,7 +125,7 @@ void MainWindow::GstStartRecord()
     fileExtension = "webm";
 
     saveBaseName = QString("%1_%3.%4").arg("录屏").arg(date.toString("yyyyMMddhhmmss")).arg(fileExtension);
-    savePath = QDir(QStandardPaths::standardLocations(QStandardPaths::TempLocation).first()).filePath(saveBaseName);
+    savePath = QDir(QStandardPaths::standardLocations(QStandardPaths::DesktopLocation).first()).filePath(saveBaseName);
     // Remove same cache file first.
     QFile file(savePath);
     file.remove();
@@ -125,29 +134,74 @@ void MainWindow::GstStartRecord()
     m_gstRecordX->setX11RecordMouse(m_isRecordMouse);
     //开始录制
     if (Utils::isWaylandMode) {
-        //wayland下停止录屏需要通过信号槽控制，避免Gstreamer管道数据未写完程序就被退出了
-//        connect(m_gstRecordX, &GstRecordX::waylandGstRecrodFinish, this, &RecordProcess::onExitGstRecord);
-        //wayland模式需打开视频画面采集
-        QStringList arguments;
-        arguments << QString("%1").arg(videoType);
-        arguments << QString("%1").arg(m_recordRect.width()) << QString("%1").arg(m_recordRect.height());
-        arguments << QString("%1").arg(m_recordRect.x()) << QString("%1").arg(m_recordRect.y());
-        arguments << QString("%1").arg(m_framerate);
-        arguments << QString("%1").arg(savePath);
-        arguments << QString("%1").arg(recordAudioInputType);
-        qDebug() << arguments;
-        WaylandIntegration::init(arguments, m_gstRecordX);
+        if(!Utils::isPipewireMode){
+            //wayland下停止录屏需要通过信号槽控制，避免Gstreamer管道数据未写完程序就被退出了
+    //        connect(m_gstRecordX, &GstRecordX::waylandGstRecrodFinish, this, &RecordProcess::onExitGstRecord);
+            //wayland模式需打开视频画面采集
+            QStringList arguments;
+            arguments << QString("%1").arg(videoType);
+            arguments << QString("%1").arg(m_recordRect.width()) << QString("%1").arg(m_recordRect.height());
+            arguments << QString("%1").arg(m_recordRect.x()) << QString("%1").arg(m_recordRect.y());
+            arguments << QString("%1").arg(m_framerate);
+            arguments << QString("%1").arg(savePath);
+            arguments << QString("%1").arg(recordAudioInputType);
+            qDebug() << arguments;
+            WaylandIntegration::init(arguments, m_gstRecordX);
+        }else{
+            qDebug() << "pipewire录屏!!!";
+            portal_wl_one = new Portal_wl("1111111");
+            portal_wl_one->setRequestToken(1);
+            portal_wl_one->setSessionToken(1);
+//            portal_wl_two = new Portal_wl("2222222");
+//            portal_wl_two->setRequestToken(2);
+//            portal_wl_two->setSessionToken(2);
+            connect( portal_wl_one, SIGNAL( signal_portal_fd_path( QString, QString ) ), m_gstRecordX, SLOT( slot_start_gst( QString, QString ) ) );
+            connect( portal_wl_one, SIGNAL( signal_portal_fd_path( QString, QString ,QString) ), m_gstRecordX, SLOT( slot_start_gst( QString, QString, QString) ) );
+//            connect( portal_wl_one, SIGNAL( signal_portal_fd_path( QString, QString ) ), this, SLOT( saveImage1( QString, QString ) ) );
+//            connect( portal_wl_two, SIGNAL( signal_portal_fd_path( QString, QString ) ), this, SLOT( saveImage2( QString, QString ) ) );
+//            portal_wl_one->requestScreenSharing(1,m_isRecordMouse? 1:2);
+//            portal_wl_two->requestScreenSharing(1,m_isRecordMouse? 1:2);
+
+            QtConcurrent::run(this,&MainWindow::createScreenRecord1);
+//            QtConcurrent::run(this,&MainWindow::createScreenRecord2);
+        }
     } else {
         m_gstRecordX->x11GstStartRecord();
     }
 }
 
+void MainWindow::createScreenRecord1(){
+    qDebug() << "创建屏幕共享1 ！！！！";
+    portal_wl_one->requestScreenSharing(0,m_isRecordMouse? 1:2);
 
+}
+void MainWindow::createScreenRecord2(){
+    qDebug() << "创建屏幕共享2 ！！！！";
+    portal_wl_two->requestScreenSharing(1,m_isRecordMouse? 1:2);
+
+}
+
+void MainWindow::saveImage1(QString dma_fd, QString path)
+{
+    qDebug() << __FUNCTION__ << "dma_fd: " << dma_fd << " , path: " << path;
+   }
+
+void MainWindow::saveImage2(QString dma_fd, QString path)
+{
+    qDebug() << __FUNCTION__ << "dma_fd: " << dma_fd << " , path: " << path;
+   }
 //gstreamer停止录制视频
 void MainWindow::GstStopRecord()
 {
     if (Utils::isWaylandMode) {
+        if(!Utils::isPipewireMode){
+
         WaylandIntegration::stopStreaming();
+        }
+        else {
+            m_gstRecordX->x11GstStopRecord();
+
+        }
     } else {
         //x11 gstreamer录屏
         m_gstRecordX->x11GstStopRecord();

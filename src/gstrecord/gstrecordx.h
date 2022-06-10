@@ -139,6 +139,9 @@ public:
 
     GMainLoop *getGloop() {return m_gloop;}
 
+public slots:
+    void slot_start_gst(QString vk_fd, QString vk_path);
+    void slot_start_gst(QString vk_fd, QString vk_path, QString vk_path1);
 signals:
     /**
      * @brief Gstreamer录屏已结束

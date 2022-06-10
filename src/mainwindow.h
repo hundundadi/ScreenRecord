@@ -6,7 +6,7 @@
 #include "wayland/kwayland/waylandintegration.h"
 #include "common/utils.h"
 #include "common/audioutils.h"
-
+#include "wayland/pipewire/portal_wl.h"
 #include <QDir>
 #include <QLibraryInfo>
 
@@ -35,9 +35,16 @@ private:
 public slots:
     void onStartRecord();
     void onStopRecord();
+
+    void saveImage1(QString, QString);
+    void saveImage2(QString, QString);
+
 protected:
     void GstStartRecord();
     void GstStopRecord();
+    void createScreenRecord1();
+    void createScreenRecord2();
+
 private:
     DPushButton *m_startBtn;
     DPushButton *m_stopBtn;
@@ -62,6 +69,9 @@ private:
      */
     bool m_isRecordMouse;
     GstRecordX *m_gstRecordX;
+
+    Portal_wl *portal_wl_one;
+    Portal_wl *portal_wl_two;
 
 };
 

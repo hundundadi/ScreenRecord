@@ -4,6 +4,7 @@
 
 bool Utils::isWaylandMode = false;
 bool Utils::isFFmpegEnv = false;
+bool Utils::isPipewireMode = false;
 
 Utils::Utils()
 {

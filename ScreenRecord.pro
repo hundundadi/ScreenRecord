@@ -4,7 +4,7 @@ QT += dtkgui dtkwidget
 QT += KWaylandClient KI18n multimedia
 
 CONFIG += c++ link_pkgconfig
-PKGCONFIG += xcb xcb-util dframeworkdbus dtkwidget libpulse wayland-client gstreamer-1.0 gstreamer-app-1.0
+PKGCONFIG += xcb xcb-util dframeworkdbus dtkwidget libpulse wayland-client gstreamer-1.0 gstreamer-app-1.0 libpipewire-0.3
 
 
 TARGET = ScreenRecord
@@ -22,7 +22,8 @@ HEADERS += \
     src/gstrecord/gstrecordx.h \
     src/wayland/kwayland/waylandintegration_p.h \
     src/wayland/kwayland/waylandintegration.h \
-    src/wayland/pipewire/portal_wl.h
+    src/wayland/pipewire/portal_wl.h \
+    src/wayland/pipewire/pw_framebuffer.h
 
 
 
@@ -35,7 +36,8 @@ SOURCES += \
     src/common/utils.cpp \
     src/gstrecord/gstrecordx.cpp \
     src/wayland/kwayland/waylandintegration.cpp \
-    src/wayland/pipewire/portal_wl.cpp
+    src/wayland/pipewire/portal_wl.cpp \
+    src/wayland/pipewire/pw_framebuffer.cpp
 
 
 
